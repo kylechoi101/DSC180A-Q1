@@ -1,0 +1,137 @@
+Phase 1: Exploration and Standardization (The Foundation)
+
+Goal: Understand the landscape of your data and apply universal cleaning steps to create a consistent baseline.
+
+    1.1. Data Profiling and Sampling
+
+        Action: Take a random sample of at least 10,000 rows. Manually read through a few hundred to get an intuitive feel for the patterns.
+
+        Analysis:
+
+            Identify the top 10-20 most common raw memo formats.
+
+            Note down recurring, non-merchant prefixes (DEBIT CARD..., TST*).
+
+            Note down recurring, non-merchant suffixes or patterns (locations, dates, transaction codes like *Z295D...).
+
+        Key Insight: This initial exploration informs all subsequent steps. Don't skip it.
+
+    1.2. Foundational Text Cleaning
+
+        Action: Create a new memo_cleaned column. Never modify the original column.
+
+        Steps (in order):
+
+            Force Uppercase: Convert all text to uppercase to eliminate case-sensitivity (WALMART vs Walmart).
+
+            Trim Whitespace: Remove any leading or trailing spaces.
+
+            Normalize Internal Spacing: Replace sequences of multiple spaces with a single space.
+
+    1.3. Bulk Prefix and Suffix Removal
+
+        Action: Based on your profiling, create a list of the most common "junk" phrases that appear at the beginning or end of memos.
+
+        Implementation: Use string replacement functions to remove these high-frequency patterns.
+
+            Prefixes to remove: DEBIT CARD WITHDRAWAL PURCHASE, POS WITHDRAWAL, RECURRING PAYMENT AUTHORIZED ON, TST*
+
+            Suffix patterns to remove (using Regex): Dates (\d{2}/\d{2}$), states ([A-Z]{2}$), transaction codes.
+
+        Result: The memo_cleaned column is now free of the most obvious noise.
+
+Phase 2: Rule-Based Extraction (The Scalpel)
+
+Goal: Use regular expressions (regex) to precisely extract merchant names from memos that have a predictable structure.
+
+    2.1. Develop and Prioritize Regex Patterns
+
+        Action: Write a series of regex patterns designed to capture the merchant name from within the surrounding text. Order matters: place your most specific patterns first.
+
+        Example Pattern List:
+
+            Capture name before an asterisk: ^([A-Z\s0-9'-]+)\* (for AUDIBLE*...)
+
+            Capture name before a hash/pound sign: ^([A-Z\s'-]+)\s+# (for WAL-MART #...)
+
+            Capture name before a location/date: ^([A-Z\s0-9'-]+?)\s+[A-Z]{2}\s+\d{2}/\d{2} (for LOS GIRASOLES STOW OH 03/08)
+
+            Capture name before - Exp: ^([A-Z\s'-]+)\s+-\s+EXP (for CASA DEL RIO - Exp...)
+
+        Tip: Use online regex testers to build and validate your patterns on your sampled data.
+
+    2.2. Apply Extraction Logic
+
+        Action: Create a function that iterates through your list of regex patterns for each memo_cleaned entry.
+
+        Logic: The first pattern that finds a match wins. The function returns the extracted group. If no pattern matches, it returns the memo_cleaned string as is.
+
+        Result: A new candidate_merchant column containing the best-effort extraction for each row.
+
+Phase 3: Data-Driven Discovery (The Magnifying Glass)
+
+Goal: Use frequency analysis to discover merchant names you missed and identify remaining noise.
+
+    3.1. N-gram Frequency Analysis
+
+        Action: Use CountVectorizer on the candidate_merchant column to find the most common 1-word, 2-word, and 3-word phrases (n-grams).
+
+        Analyze the Output:
+
+            High-Frequency N-grams: These are your most common merchants (AMAZON PRIME, BUFFALO WILD WINGS). This validates your process and discovers names that don't fit a simple regex pattern.
+
+            "Junk" N-grams: If you see frequent n-grams like "E MAIN STREET", it means your cleaning in Phase 1 missed something.
+
+        Actionable Insight: This gives you a data-driven list of potential merchants and a list of new patterns to clean.
+
+    3.2. Iterate and Refine
+
+        Action: Go back to Phase 1 and 2.
+
+            Add any newly discovered junk patterns to your cleaning list.
+
+            Add new regex rules for memo formats you've now identified.
+
+        Process: Re-run the pipeline. Repeat this cycle 2-3 times. Each iteration will significantly improve the quality of your candidate_merchant column.
+
+Phase 4: Consolidation and Canonicalization (The Final Polish)
+
+Goal: Group all variations of a single merchant (e.g., WAL-MART, WALMART, WM SUPERCENTER) into one canonical name.
+
+    4.1. High-Frequency Manual Mapping (The 80/20 Rule)
+
+        Action: Get the value_counts() of your candidate_merchant column. The top 500-1000 names will likely cover over 80% of your transactions.
+
+        Implementation: Manually create a dictionary to map these variations to a standard name.
+
+            mapping = {"WAL-MART": "Walmart", "WM SUPERCENTER": "Walmart", "AMZN MKTPLC": "Amazon", "AMAZON PRIME": "Amazon"}
+
+        Benefit: This is the fastest and most accurate way to clean the bulk of your data.
+
+    4.2. Automated Clustering with Fuzzy Matching (For the Long Tail)
+
+        Action: For the thousands of less frequent names, use a string similarity algorithm.
+
+        Implementation: Use a library like thefuzz or rapidfuzz. Group any two strings together if their similarity score (e.g., token_set_ratio) is above a high threshold (e.g., 90).
+
+        Example: This will automatically group "MCDONALD'S" and "MCDONALDS".
+
+        Benefit: Handles the long tail of typos and minor variations without tedious manual work.
+
+    4.3. Create Final Merchant Column
+
+        Action: Apply the manual mapping and the results of the fuzzy clustering to the candidate_merchant column to produce the final_merchant column.
+
+Phase 5: Validation and Output
+
+    5.1. Final Review
+
+        Action: Get the value_counts() of the final_merchant column.
+
+        Sanity Check: Manually review the top 200 names and a random sample of 100 less frequent ones. Does everything look correct? Are there any glaring errors? If so, make final adjustments to your mappings or rules.
+
+    5.2. Generate Distinct List
+
+        Action: Your final output is the unique set of values from the final_merchant column.
+
+        Result: A clean, reliable, and distinct list of all merchant names present in your data.
